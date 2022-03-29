@@ -28,6 +28,7 @@ func load(r *rt.Runtime) (rt.Value, func()) {
 		r.SetEnvGoFunc(pkg, "difftime", difftime, 2, false),
 		r.SetEnvGoFunc(pkg, "time", timef, 1, false),
 		r.SetEnvGoFunc(pkg, "getenv", getenv, 1, false),
+		r.SetEnvGoFunc(pkg, "setenv", setenv, 2, false),
 		r.SetEnvGoFunc(pkg, "tmpname", tmpname, 0, false),
 		r.SetEnvGoFunc(pkg, "remove", remove, 1, false),
 		r.SetEnvGoFunc(pkg, "rename", rename, 2, false),
@@ -214,6 +215,27 @@ func getenv(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 		valV = rt.StringValue(val)
 	}
 	return c.PushingNext1(t.Runtime, valV), nil
+}
+
+func setenv(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
+	if err := c.CheckNArgs(2); err != nil {
+		return nil, err
+	}
+	name, err := c.StringArg(0)
+	if err != nil {
+		return nil, err
+	}
+	val, err := c.StringArg(1)
+	if err != nil {
+		return nil, err
+	}
+
+	err = os.Setenv(name, val)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.PushingNext1(t.Runtime, rt.BoolValue(true)), nil
 }
 
 func tmpname(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
