@@ -55,7 +55,7 @@ func getFormatReader(fmt rt.Value) (reader formatReader, err error) {
 		switch s {
 		case "n", "*n":
 			reader = (*File).ReadNumber
-		case "a", "*a", "all":
+		case "a", "*a", "all", "*all":
 			reader = (*File).ReadAll
 		case "l", "*l":
 			reader = lineReader(false)
