@@ -427,7 +427,7 @@ func sortf(t *rt.Thread, c *rt.GoCont) (next rt.Cont, resErr error) {
 
 // Maximum number of values that can be unpacked from a table.  Lua docs don't
 // specify what this number should be.
-const maxUnpackSize = 256
+const maxUnpackSize = 2048
 
 func unpack(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 	if err := c.Check1Arg(); err != nil {
