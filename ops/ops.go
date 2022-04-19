@@ -6,10 +6,10 @@ type Op uint
 //go:generate stringer -type=Op
 
 // OpOr is a logical or (precedence 0)
-const OpOr Op = 0 + iota<<8
+const OpOr Op = 0 + 0<<8
 
 // OpAnd is a logical and (precedence 1)
-const OpAnd Op = 1 + iota<<8
+const OpAnd Op = 1 + 0<<8
 
 // Precedence 2 binary operators
 const (
@@ -22,13 +22,13 @@ const (
 )
 
 // OpBitOr is bitwise or (precedence 3)
-const OpBitOr Op = 3 + iota<<8
+const OpBitOr Op = 3 + 0<<8
 
 // OpBitXor is bitwise exclusive or (precedence 4)
-const OpBitXor Op = 4 + iota<<8
+const OpBitXor Op = 4 + 0<<8
 
 // OpBitAnd is bitwise and (precedence 5)
-const OpBitAnd Op = 5 + iota<<8
+const OpBitAnd Op = 5 + 0<<8
 
 // Precedence 6 binary operators (bitwise shifts)
 const (
@@ -37,7 +37,7 @@ const (
 )
 
 // OpConcat is the concatenate operator (precedence 7)
-const OpConcat Op = 7 + iota<<8
+const OpConcat Op = 7 + 0<<8
 
 // Precendence 8 binary operators (add / subtract)
 const (
@@ -63,7 +63,7 @@ const (
 )
 
 // OpPow (power) is special, precendence 10.
-const OpPow Op = 11 + iota<<8
+const OpPow Op = 11 + 0<<8
 
 // Precedence returns the precedence of an operator (higher means binds more
 // tightly).
