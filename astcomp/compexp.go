@@ -25,6 +25,9 @@ func (c *expCompiler) ProcessBFunctionCallExp(f ast.BFunctionCall) {
 
 // ProcessBinOpExp compiles a BinOpExp.
 func (c *expCompiler) ProcessBinOpExp(b ast.BinOp) {
+	if b.OpType == 1 { // HACK
+		b.OpType += 0x100;
+	}
 	if b.OpType == ops.OpAnd {
 		c.compileLogicalOp(b, true)
 		return
