@@ -33,7 +33,7 @@ var (
 
 // A File wraps an os.File for manipulation by iolib.
 type File struct {
-	file   *os.File
+	File   *os.File
 	status fileStatus
 	reader bufReader
 	writer bufWriter
@@ -49,7 +49,7 @@ const (
 
 // NewFile returns a new *File from an *os.File.
 func NewFile(file *os.File, options int) *File {
-	f := &File{file: file}
+	f := &File{File: file}
 	// TODO: find out if there is mileage in having unbuffered readers.
 	if true || options&bufferedRead != 0 {
 		f.reader = bufio.NewReader(file)
@@ -152,7 +152,7 @@ func (f *File) Close() error {
 		// Lua doesn't return a Lua error, so wrap this in a PathError
 		return &fs.PathError{
 			Op:   "close",
-			Path: f.file.Name(),
+			Path: f.File.Name(),
 			Err:  errCloseStandardFile,
 		}
 	}
@@ -162,7 +162,7 @@ func (f *File) Close() error {
 	}
 	f.status |= statusClosed
 	errFlush := f.writer.Flush()
-	err := f.file.Close()
+	err := f.File.Close()
 	if err == nil {
 		return errFlush
 	}
@@ -174,7 +174,7 @@ func (f *File) Flush() error {
 	if err := f.writer.Flush(); err != nil {
 		return err
 	}
-	return f.file.Sync()
+	return f.File.Sync()
 }
 
 // ReadLine reads a line from the file.  If withEnd is true, it will include the
@@ -269,12 +269,12 @@ func (f *File) Seek(offset int64, whence int) (n int64, err error) {
 	}
 	switch whence {
 	case io.SeekStart, io.SeekEnd:
-		n, err = f.file.Seek(offset, whence)
-		f.reader.Reset(f.file)
-		f.writer.Reset(f.file)
+		n, err = f.File.Seek(offset, whence)
+		f.reader.Reset(f.File)
+		f.writer.Reset(f.File)
 	case io.SeekCurrent:
 		var n0 int64
-		n0, err = f.file.Seek(0, whence)
+		n0, err = f.File.Seek(0, whence)
 		bufCount := int64(f.reader.Buffered())
 		n = n0 - bufCount + offset
 		if err != nil {
@@ -295,17 +295,17 @@ func (f *File) SetWriteBuffer(mode string, size int) error {
 	f.Flush()
 	switch mode {
 	case "no":
-		f.writer = &nobufWriter{f.file}
+		f.writer = &nobufWriter{f.File}
 	case "full":
 		if size == 0 {
 			size = 65536
 		}
-		f.writer = bufio.NewWriterSize(f.file, size)
+		f.writer = bufio.NewWriterSize(f.File, size)
 	case "line":
 		if size == 0 {
 			size = 65536
 		}
-		f.writer = linebufWriter{bufio.NewWriterSize(f.file, size)}
+		f.writer = linebufWriter{bufio.NewWriterSize(f.File, size)}
 		// TODO
 	default:
 		return errInvalidBufferMode
@@ -315,7 +315,7 @@ func (f *File) SetWriteBuffer(mode string, size int) error {
 
 // Name returns the file name.
 func (f *File) Name() string {
-	return f.file.Name()
+	return f.File.Name()
 }
 
 // Best effort to flush and close files when they are no longer accessible.
