@@ -1,10 +1,14 @@
 package iolib
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"runtime"
+	"syscall"
 
 	"github.com/arnodel/golua/lib/packagelib"
 	rt "github.com/arnodel/golua/runtime"
@@ -43,6 +47,7 @@ func load(r *rt.Runtime) (rt.Value, func()) {
 		r.SetEnvGoFunc(methods, "write", filewrite, 1, true),
 
 		r.SetEnvGoFunc(meta, "__close", file__close, 1, false),
+		// r.SetEnvGoFunc(meta, "__gc", file__close, 1, false),
 	)
 
 	rt.SolemnlyDeclareCompliance(
@@ -68,19 +73,19 @@ func load(r *rt.Runtime) (rt.Value, func()) {
 	if r.Stdout == nil {
 		r.Stdout = stdoutFile.writer
 	}
-	stdin := newFileUserData(stdinFile, meta)
-	stdout := newFileUserData(stdoutFile, meta)
-	stderr := newFileUserData(stderrFile, meta) // I''m guessing, don't buffer stderr?
+	stdin := r.NewUserDataValue(stdinFile, meta)
+	stdout := r.NewUserDataValue(stdoutFile, meta)
+	stderr := r.NewUserDataValue(stderrFile, meta) // I''m guessing, don't buffer stderr?
 
 	r.SetRegistry(ioKey, rt.AsValue(&ioData{
-		defaultOutput: stdout,
-		defaultInput:  stdin,
+		defaultOutput: stdout.AsUserData(),
+		defaultInput:  stdin.AsUserData(),
 		metatable:     meta,
 	}))
 	pkg := rt.NewTable()
-	r.SetEnv(pkg, "stdin", rt.UserDataValue(stdin))
-	r.SetEnv(pkg, "stdout", rt.UserDataValue(stdout))
-	r.SetEnv(pkg, "stderr", rt.UserDataValue(stderr))
+	r.SetEnv(pkg, "stdin", stdin)
+	r.SetEnv(pkg, "stdout", stdout)
+	r.SetEnv(pkg, "stderr", stderr)
 
 	rt.SolemnlyDeclareCompliance(
 		rt.ComplyCpuSafe|rt.ComplyMemSafe|rt.ComplyIoSafe,
@@ -91,7 +96,7 @@ func load(r *rt.Runtime) (rt.Value, func()) {
 		r.SetEnvGoFunc(pkg, "lines", iolines, 1, true),
 		r.SetEnvGoFunc(pkg, "open", open, 2, false),
 		r.SetEnvGoFunc(pkg, "output", output, 1, false),
-		// TODO: popen,
+		r.SetEnvGoFunc(pkg, "popen", popen, 2, false),
 		r.SetEnvGoFunc(pkg, "read", ioread, 0, true),
 		r.SetEnvGoFunc(pkg, "tmpfile", tmpfile, 0, false),
 		r.SetEnvGoFunc(pkg, "write", iowrite, 0, true),
@@ -151,7 +156,16 @@ func ioclose(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 			return nil, err
 		}
 	}
-	return pushingNextIoResult(t.Runtime, c, f.Close())
+
+	var cont rt.Cont
+	var err error
+	if f.file == nil {
+		cont, err = f.close(t, c)
+	} else {
+		cont, err = pushingNextIoResult(t.Runtime, c, f.Close())
+	}
+
+	return cont, err
 }
 
 func fileclose(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
@@ -169,8 +183,7 @@ func file__close(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 	if err != nil {
 		return nil, err
 	}
-	closeErr := f.Close()
-	_ = closeErr // TODO: something with the error
+	f.cleanup()
 	return c.Next(), nil
 }
 
@@ -205,7 +218,7 @@ func input(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 		return c.PushingNext1(t.Runtime, rt.UserDataValue(ioData.defaultInput)), nil
 	}
 	var (
-		fv  *rt.UserData
+		fv  rt.Value
 		arg = c.Arg(0)
 	)
 	switch arg.Type() {
@@ -214,18 +227,18 @@ func input(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 		if ioErr != nil {
 			return nil, ioErr
 		}
-		fv = newFileUserData(f, ioData.metatable)
+		fv = t.NewUserDataValue(f, ioData.metatable)
 	case rt.UserDataType:
 		_, err := FileArg(c, 0)
 		if err != nil {
 			return nil, errFileOrFilename()
 		}
-		fv = arg.AsUserData()
+		fv = arg
 	default:
 		return nil, errFileOrFilename()
 	}
-	ioData.defaultInput = fv
-	return c.PushingNext1(t.Runtime, rt.UserDataValue(fv)), nil
+	ioData.defaultInput = fv.AsUserData()
+	return c.PushingNext1(t.Runtime, fv), nil
 }
 
 func output(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
@@ -234,7 +247,7 @@ func output(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 		return c.PushingNext1(t.Runtime, rt.UserDataValue(ioData.defaultOutput)), nil
 	}
 	var (
-		fv  *rt.UserData
+		fv  rt.Value
 		arg = c.Arg(0)
 	)
 	switch arg.Type() {
@@ -243,20 +256,20 @@ func output(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 		if ioErr != nil {
 			return nil, ioErr
 		}
-		fv = newFileUserData(f, ioData.metatable)
+		fv = t.NewUserDataValue(f, ioData.metatable)
 	case rt.UserDataType:
 		_, err := FileArg(c, 0)
 		if err != nil {
 			return nil, errFileOrFilename()
 		}
-		fv = arg.AsUserData()
+		fv = arg
 	default:
 		return nil, errFileOrFilename()
 	}
 	// Make sure the current output is flushed
 	ioData.defaultOutput.Value().(*File).Flush()
-	ioData.defaultOutput = fv
-	return c.PushingNext1(t.Runtime, rt.UserDataValue(fv)), nil
+	ioData.defaultOutput = fv.AsUserData()
+	return c.PushingNext1(t.Runtime, fv), nil
 }
 
 func iolines(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
@@ -355,8 +368,122 @@ func open(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 	if ioErr != nil {
 		return pushingNextIoResult(t.Runtime, c, ioErr)
 	}
-	u := newFileUserData(f, getIoData(t.Runtime).metatable)
-	return c.PushingNext(t.Runtime, rt.UserDataValue(u)), nil
+
+	fv := t.NewUserDataValue(f, getIoData(t.Runtime).metatable)
+	return c.PushingNext(t.Runtime, fv), nil
+}
+
+func popen(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
+	if err := c.Check1Arg(); err != nil {
+		return nil, err
+	}
+	cmdStr, err := c.StringArg(0)
+	if err != nil {
+		return nil, err
+	}
+
+	mode := "r"
+	if c.NArgs() >= 2 {
+		mode, err = c.StringArg(1)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var cmdArgs []string
+	if runtime.GOOS == "windows" {
+		cmdArgs = []string{"C:\\Windows\\system32\\cmd.exe", "/c", cmdStr}
+	} else {
+		cmdArgs = []string{"/bin/sh", "-c", cmdStr}
+	}
+
+	cmd := exec.Cmd{
+		Path: cmdArgs[0],
+		Args: cmdArgs,
+	}
+
+	outDummy, inDummy, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+
+	f := &File{
+		writer: &nobufWriter{inDummy},
+		reader: &nobufReader{outDummy},
+		name: cmdStr,
+	}
+
+	var stdout io.ReadCloser
+	var stdin io.WriteCloser
+	switch mode {
+		case "r":
+			stdout, err = cmd.StdoutPipe()
+			f.reader = bufio.NewReader(stdout)
+		case "w":
+			stdin, err = cmd.StdinPipe()
+			f.writer = bufio.NewWriterSize(stdin, 65536)
+		default:
+			err = errors.New("invalid mode")
+	}
+	// called *only* from io.close
+	f.close = func(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
+		err := f.Close()
+		if err != nil {
+			return pushingNextIoResult(t.Runtime, c, err)
+		}
+	
+		if stdout != nil {
+			err := stdout.Close()
+			if err != nil {
+				return pushingNextIoResult(t.Runtime, c, err)
+			}
+		}
+		if stdin != nil {
+			err := stdin.Close()
+			if err != nil {
+				return pushingNextIoResult(t.Runtime, c, err)
+			}
+		}
+
+		cont := c.Next()
+
+		cmd.Wait()
+		ps := cmd.ProcessState
+		if ps.Success() {
+			t.Runtime.Push(cont, rt.BoolValue(true))
+		} else {
+			t.Runtime.Push(cont, rt.NilValue)
+		}
+
+		exit := rt.StringValue("exit")
+		code := rt.IntValue(int64(ps.ExitCode()))
+		if !ps.Exited() {
+			// received signal instead of normal exit
+			exit = rt.StringValue("signal")
+			if runtime.GOOS != "windows" {
+				// i can't find out what Sys() is on windows ...
+				ws := ps.Sys().(syscall.WaitStatus)
+				sig := ws.Signal()
+				code = rt.IntValue(int64(sig)) // syscall.Signal
+			}
+		}
+
+		t.Runtime.Push(cont, exit, code)
+
+		return c.Next(), nil
+	}
+
+	if err != nil {
+		return pushingNextIoResult(t.Runtime, c, err)
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		return nil, err
+	}
+
+	fv := t.NewUserDataValue(f, getIoData(t.Runtime).metatable)
+	return c.PushingNext(t.Runtime, fv), nil
 }
 
 func typef(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
@@ -493,8 +620,8 @@ func tmpfile(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 	if err != nil {
 		return nil, err
 	}
-	fv := newFileUserData(f, getIoData(t.Runtime).metatable)
-	return c.PushingNext(t.Runtime, rt.UserDataValue(fv)), nil
+	fv := t.NewUserDataValue(f, getIoData(t.Runtime).metatable)
+	return c.PushingNext(t.Runtime, fv), nil
 }
 
 func tostring(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
@@ -513,8 +640,4 @@ func tostring(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 	}
 	t.RequireBytes(len(s))
 	return c.PushingNext(t.Runtime, rt.StringValue(s)), nil
-}
-
-func newFileUserData(f *File, meta *rt.Table) *rt.UserData {
-	return rt.NewUserData(f, meta)
 }

@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"os"
-	"runtime"
 	"strings"
 
 	rt "github.com/arnodel/golua/runtime"
@@ -34,10 +33,14 @@ var (
 // A File wraps an os.File for manipulation by iolib.
 type File struct {
 	file   *os.File
+	name   string
+	close func(*rt.Thread, *rt.GoCont) (rt.Cont, error)
 	status fileStatus
 	reader bufReader
 	writer bufWriter
 }
+
+var _ rt.UserDataResourceReleaser = (*File)(nil)
 
 type fileStatus int
 
@@ -49,7 +52,7 @@ const (
 
 // NewFile returns a new *File from an *os.File.
 func NewFile(file *os.File, options int) *File {
-	f := &File{file: file}
+	f := &File{file: file, name: file.Name()}
 	// TODO: find out if there is mileage in having unbuffered readers.
 	if true || options&bufferedRead != 0 {
 		f.reader = bufio.NewReader(file)
@@ -67,7 +70,6 @@ func NewFile(file *os.File, options int) *File {
 	if options&notClosable != 0 {
 		f.status |= statusNotClosable
 	}
-	runtime.SetFinalizer(f, (*File).cleanup)
 	return f
 }
 
@@ -162,7 +164,12 @@ func (f *File) Close() error {
 	}
 	f.status |= statusClosed
 	errFlush := f.writer.Flush()
-	err := f.file.Close()
+
+	var err error
+	if f.file != nil {
+		err = f.file.Close()
+	}
+
 	if err == nil {
 		return errFlush
 	}
@@ -174,7 +181,11 @@ func (f *File) Flush() error {
 	if err := f.writer.Flush(); err != nil {
 		return err
 	}
-	return f.file.Sync()
+	if f.file != nil {
+		return f.file.Sync()
+	}
+
+	return nil
 }
 
 // ReadLine reads a line from the file.  If withEnd is true, it will include the
@@ -263,6 +274,11 @@ func (f *File) WriteString(s string) error {
 
 // Seek seeks from the file.
 func (f *File) Seek(offset int64, whence int) (n int64, err error) {
+	if f.file == nil {
+		// popen'd; seems you can't seek a popen file in original lua impl, so error
+		return 0, errors.New("Illegal seek") // not sure what error message to use
+	}
+
 	err = f.writer.Flush()
 	if err != nil {
 		return
@@ -315,7 +331,12 @@ func (f *File) SetWriteBuffer(mode string, size int) error {
 
 // Name returns the file name.
 func (f *File) Name() string {
-	return f.file.Name()
+	return f.name
+}
+
+// ReleaseResources cleans up the file
+func (f *File) ReleaseResources(d *rt.UserData) {
+	f.cleanup()
 }
 
 // Best effort to flush and close files when they are no longer accessible.
