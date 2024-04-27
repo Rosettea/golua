@@ -344,6 +344,10 @@ func (f *File) ReleaseResources(d *rt.UserData) {
 	f.cleanup()
 }
 
+func (f *File) Value(r *rt.Runtime) rt.Value {
+	return r.NewUserDataValue(f, getIoData(r).metatable)
+}
+
 // Best effort to flush and close files when they are no longer accessible.
 func (f *File) cleanup() {
 	if !f.IsClosed() {
