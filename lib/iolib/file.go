@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	bufferedRead int = 1 << iota
-	bufferedWrite
-	notClosable
-	tempFile
+	BufferedRead int = 1 << iota
+	BufferedWrite
+	NotClosable
+	Temporary
 )
 
 var (
@@ -54,20 +54,20 @@ const (
 func NewFile(file *os.File, options int) *File {
 	f := &File{file: file, name: file.Name()}
 	// TODO: find out if there is mileage in having unbuffered readers.
-	if true || options&bufferedRead != 0 {
+	if true || options&BufferedRead != 0 {
 		f.reader = bufio.NewReader(file)
 	} else {
 		f.reader = &nobufReader{file}
 	}
-	if options&bufferedWrite != 0 {
+	if options&BufferedWrite != 0 {
 		f.writer = bufio.NewWriterSize(file, 65536)
 	} else {
 		f.writer = &nobufWriter{file}
 	}
-	if options&tempFile != 0 {
+	if options&Temporary != 0 {
 		f.status |= statusTemp
 	}
-	if options&notClosable != 0 {
+	if options&NotClosable != 0 {
 		f.status |= statusNotClosable
 	}
 	return f
@@ -79,22 +79,22 @@ func OpenFile(r *rt.Runtime, name, mode string) (*File, error) {
 	switch strings.TrimSuffix(mode, "b") {
 	case "r":
 		flag = os.O_RDONLY
-		options = bufferedRead
+		options = BufferedRead
 	case "w":
 		flag = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-		options = bufferedWrite
+		options = BufferedWrite
 	case "a":
 		flag = os.O_WRONLY | os.O_CREATE | os.O_APPEND
-		options = bufferedWrite
+		options = BufferedWrite
 	case "r+":
 		flag = os.O_RDWR
-		options = bufferedRead | bufferedWrite
+		options = BufferedRead | BufferedWrite
 	case "w+":
 		flag = os.O_RDWR | os.O_CREATE | os.O_TRUNC
-		options = bufferedRead | bufferedWrite
+		options = BufferedRead | BufferedWrite
 	case "a+":
 		flag = os.O_RDWR | os.O_CREATE | os.O_APPEND
-		options = bufferedRead | bufferedWrite
+		options = BufferedRead | BufferedWrite
 	default:
 		return nil, errors.New("invalid mode")
 	}
@@ -112,7 +112,7 @@ func TempFile(r *rt.Runtime) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	ff := NewFile(f, bufferedRead|bufferedWrite|tempFile)
+	ff := NewFile(f, BufferedRead|BufferedWrite|Temporary)
 	return ff, nil
 }
 
@@ -332,6 +332,11 @@ func (f *File) SetWriteBuffer(mode string, size int) error {
 // Name returns the file name.
 func (f *File) Name() string {
 	return f.name
+}
+
+// Handle returns the underlying Go os.File.
+func (f *File) Handle() *os.File {
+	return f.file
 }
 
 // ReleaseResources cleans up the file

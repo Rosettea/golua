@@ -62,8 +62,8 @@ func load(r *rt.Runtime) (rt.Value, func()) {
 		stdinOpts  = statusNotClosable
 	)
 	if BufferedStdFiles {
-		stdoutOpts |= bufferedWrite
-		stdinOpts |= bufferedRead
+		stdoutOpts |= BufferedWrite
+		stdinOpts |= BufferedRead
 	}
 
 	stdinFile := NewFile(os.Stdin, stdinOpts)
