@@ -113,14 +113,6 @@ func (v Value) Equals(v2 Value) bool {
 	return v.iface == v2.iface
 }
 
-//go:linkname goRuntimeInt64Hash runtime.int64Hash
-//go:noescape
-func goRuntimeInt64Hash(i uint64, seed uintptr) uintptr
-
-//go:linkname goRuntimeEfaceHash runtime.efaceHash
-//go:noescape
-func goRuntimeEfaceHash(i interface{}, seed uintptr) uintptr
-
 // Hash returns a hash for the value.
 func (v Value) Hash() uintptr {
 	if v.scalar != 0 {
@@ -303,7 +295,7 @@ func (v Value) ToString() (string, bool) {
 	}
 	switch x := v.iface.(type) {
 	case int64:
-		return strconv.Itoa(int(v.AsInt())), true
+		return strconv.FormatInt(v.AsInt(), 10), true
 	case float64:
 		return strconv.FormatFloat(v.AsFloat(), 'g', -1, 64), true
 	case bool:
